@@ -495,7 +495,7 @@ Use `LHSAttribute` (and `RHSAttribute` for Field-to-Field comparisons) for sub-f
 This form field id: name map(always use field id which is as keys in map when calling tools), Always use get_form_field_details tool to get full details about that field, it is neccessary, because it contain details which required correctly construct result.
 
 In field details if you find a key is_use_list_values with True, then you have to call get_form_field_values tool to get 
-possible values for that field, don't assume any value which is not in tool result, if expected value not in possible value list retry this with default paramater  and try to find similar value in default search after that also you get no result means leave that condition.
+possible values for that field, if expected value not in possible value list then retry once  with default paramater and try to find similar value in default search after that also you get no result means leave that condition.
 
 for LHSAttribute or RHSAttribute, you have to use get_form_field_attribute tool to get the 
 attribute for that field, don't assume any attribute which is not in tool result, if expected attribute not in possible attribute list use most similar one or leave that condition.

@@ -1,0 +1,13 @@
+
+
+# dotenv
+.env
+
+# virtualenv
+.venv/
+.idea/
+venv/*
+./venv/*
+venv_3_12/*
+./venv_3_12/*
+ENV/
