@@ -65,6 +65,6 @@ print(app.get_graph().draw_mermaid())
 app.get_graph().print_ascii()
 
 
-response = app.invoke(HumanMessage(content="filter working items"))
+response = app.invoke(HumanMessage(content="filter all working items"))
 
 print(response)
