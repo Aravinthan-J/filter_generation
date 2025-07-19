@@ -63,14 +63,45 @@ When a user's natural language query refers to a field, you MUST use the provide
     * Use the field's `name` (converted to lowercase, spaces to underscores) prepended with `_` and appended with `_name`.
     * **Example:** For `{{ "name": "Status", "type": "SELECT", ... }}`, `LHSField` will be `_status_name`.
 * **For `USER` or `MULTI_USER` fields**:
-    * If the query refers to the user's *display name* or `_current_user` implicitly by name: Use the field's `name` (converted to lowercase, spaces to underscores) prepended with `_` and appended with `_name`.
-        * **Example:** For `{{ "name": "Assignee", "type": "USER", ... }}` and query "assigned to me", `LHSField` will be `_assignee_name`.
+    * **Special Case: If the natural language refers to the field named "Assignee" (schema `name: "Assignee"`, `id: "Assignee_Custom"`) and implies "assigned to me" or "assigned to [user's display name]", the `LHSField` should be `"AssignedTo"`**.
+    * Otherwise, if the query refers to the user's *display name*: Use the field's `name` (converted to lowercase, spaces to underscores) prepended with `_` and appended with `_name`.
+        * **Example:** For `{{ "name": "Requester", "type": "USER", ... }}` and query "requested by me", `LHSField` will be `_requester_name`.
     * If the query refers to the user's *ID*: Use the field's `name` (converted to lowercase, spaces to underscores) prepended with `_` and appended with `_id`.
         * **Example:** For `{{ "name": "Assignee", "type": "USER", ... }}` and query "assigned to user ID 'user123'", `LHSField` will be `_assignee_id`.
 * **For all other field types (e.g., `TEXT`, `NUMBER`, `DATE`, `CURRENCY`, `EMAIL`, `BOOLEAN`, `CHECK_LIST`, etc.)**:
     * Use the field's `id` directly from the schema.
     * **Example:** For `{{ "id": "Text_1", "name": "Text", ... }}`, `LHSField` will be `Text_1`.
     * **Example:** For `{{ "id": "Currency_1", "name": "Currency", ... }}` and query "Currency's value is 100", `LHSField` will be `Currency_1` and `LHSAttribute` will be `v`.
+
+---
+
+#### **1.2. Tool Interaction Protocol for Field and Value Resolution**
+
+**You must simulate the following tool interactions to correctly construct the `filter_struct`. This means your internal logic should behave as if these calls are made and their results are used.**
+
+1.  **Initial Field Details (`get_form_field_details`)**:
+    * For every potential `LHSField` identified from the natural language query, conceptually call `get_form_field_details(field_id=LHSField_id_from_schema)`.
+    * This tool provides the full details about that field, including its `type`, `dbType`, and crucially, `is_use_list_values`. This information is necessary to correctly construct the result.
+    * **Always use the `field_id` (from the schema) as the `field_id` parameter when conceptually calling `get_form_field_details`.**
+
+2.  **List Values Resolution (`get_form_field_values`)**:
+    * If `get_form_field_details` for an `LHSField` returns `is_use_list_values: True` (e.g., for `SELECT`, `MULTI_SELECT`, `CHECK_BOX` fields), you must conceptually call `get_form_field_values(field_id=LHSField_id_from_schema, search_term=natural_language_value)`.
+    * If the `natural_language_value` is not found directly in the `possible_values` list returned by the tool:
+        * **Retry once** by conceptually calling `get_form_field_values(field_id=LHSField_id_from_schema, search_term="default")` (or a similar default/broad search parameter if the tool accepts it).
+        * Try to find a **similar value** in the results of the default search.
+        * If no similar value is found after retrying, **do not include this specific condition** in the `filter_struct`.
+
+3.  **Attribute Resolution (`get_form_field_attribute`)**:
+    * For `LHSAttribute` or `RHSAttribute`, you must conceptually call `get_form_field_attribute(field_id=LHSField_id_from_schema, attribute_name=natural_language_attribute)`.
+    * If the `natural_language_attribute` is not found directly in the `possible_attributes` list returned by the tool:
+        * Use the **most similar one** from the `possible_attributes` list.
+        * If no similar attribute is found, **do not include this specific attribute** in the condition (set `LHSAttribute` or `RHSAttribute` to `null`).
+
+---
+
+#### **1.3. Contextual Interpretation Rules**
+
+* **"status" vs. "state"**: Understand that "status" generally refers to the status of main "items", while "state" typically refers to the state of "sub-items". Apply this contextual understanding when determining the `LHSField` if both "status" and "state" fields exist and the context (item vs. sub-item) is implied in the query. (Note: Current schema does not explicitly differentiate items/sub-items, but be aware for future contexts.)
 
 ---
 
@@ -81,7 +112,7 @@ Each individual filter rule is a JSON object with the following keys:
 | Key                     | Type   | Description                                                                                                                              |
 | ----------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `LHSField`              | string | **Required.** The name of the field being filtered (e.g., `_status_name`, `DueDate_1`), derived from Section 1.1.                         |
-| `LHSAttribute`          | string | **Optional.** The sub-field for complex types. For `User` fields, use `_id` or `Name`. For `Currency` fields, use `value` or `unit`.  |
+| `LHSAttribute`          | string | **Optional.** The sub-field for complex types. For `User` fields, use `_id` or `Name`. For `Currency` fields, use `v` (value) or `unit`.  |
 | `LHSAttributeFieldType` | string | **Optional.** The data type of the value at `LHSAttribute` (e.g., "Number" for currency value, "Text" for user name). `null` if no `LHSAttribute`. |
 | `Operator`              | string | **Required.** The comparison operator to use. **Must be exact value from mapping tables (e.g., `EQUAL_TO`, `CONTAINS`).** |
 | `RHSType`               | string | **Required.** The type of the value on the right side. Must be one of `Value`, `Field`, or `Parameter`.                                    |
@@ -169,7 +200,7 @@ Use `LHSAttribute` (and `RHSAttribute` for Field-to-Field comparisons) for sub-f
 * **Example Query:** `AssignedTo's Email contains "kissflow.com"`
     ```json
     {{
-      "LHSField": "_assignee_name",
+      "LHSField": "Assignee_Custom",
       "LHSAttribute": "Email",
       "LHSAttributeFieldType": "Email",
       "Operator": "CONTAINS",
@@ -313,7 +344,7 @@ Use `LHSAttribute` (and `RHSAttribute` for Field-to-Field comparisons) for sub-f
     {{
       "OR": [
         {{
-          "LHSField": "_assignee_name",
+          "LHSField": "AssignedTo",
           "LHSAttribute": null,
           "LHSAttributeFieldType": null,
           "Operator": "EQUAL_TO",
@@ -426,8 +457,6 @@ Use `LHSAttribute` (and `RHSAttribute` for Field-to-Field comparisons) for sub-f
   "RHSField": null,
   "RHSAttribute": null,
   "RHSParam": ""
-    }}
-  ]
 }}
 ```
 
@@ -491,17 +520,8 @@ Use `LHSAttribute` (and `RHSAttribute` for Field-to-Field comparisons) for sub-f
     }}
   ]
 }}
-
-This form field id: name map(always use field id which is as keys in map when calling tools), Always use get_form_field_details tool to get full details about that field, it is neccessary, because it contain details which required correctly construct result.
-
-In field details if you find a key is_use_list_values with True, then you have to call get_form_field_values tool to get 
-possible values for that field, if expected value not in possible value list then retry once  with default paramater and try to find similar value in default search after that also you get no result means leave that condition.
-
-for LHSAttribute or RHSAttribute, you have to use get_form_field_attribute tool to get the 
-attribute for that field, don't assume any attribute which is not in tool result, if expected attribute not in possible attribute list use most similar one or leave that condition.
-
-status is for items, state is for subitems.
 """ +"{"+ str(get_form_field_map())+"}"
+
 generation_prompt = ChatPromptTemplate.from_messages(
     [
         ("system",system_prompt
