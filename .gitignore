@@ -13,3 +13,6 @@ venv3_12/*
 
 #idea
 .idea/
+
+#cache
+__pycache__
